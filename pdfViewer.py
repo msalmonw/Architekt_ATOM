@@ -114,7 +114,6 @@ class PDFViewer(QGraphicsView):
         self.scene.addItem(self.scene_img)
         self.scene_img.setScale(1.0)
         self.fitInView(self.scene_img)
-        #self.setSceneRect(self.scene_img.boundingRect().toRect()))
         
     def setRubberband(self):
         self.selectionRect = ResizableRect()
@@ -129,8 +128,12 @@ class PDFViewer(QGraphicsView):
         self.scene.removeItem(self.selectionRects.pop())
 
     def getRectCoords(self):
-        poly = self.scene_img.mapRectToScene(self.selectionRect.rect())
+        imageSize = self.scene_img.pixmap().size()
+        rect = self.scene_img.mapRectToParent(self.selectionRect.rect())
         
-        return poly.getCoords()
+        coords = rect.getCoords()
+        coordsRelative = [coords[0]/imageSize.width(), coords[1]/imageSize.height(), coords[2]/imageSize.width(), coords[3]/imageSize.height()]
+
+        return coordsRelative
         
 

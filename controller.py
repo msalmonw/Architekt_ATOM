@@ -113,14 +113,21 @@ class Controller:
         
         os.chdir(self.current_dir)
 
+        if os.path.exists('Coordinates'):
+            pass
+        else:
+            os.mkdir('Coordinates')
+
         #necessary variables
-        self.selections = {}
+        self.jsonData = {}
 
         #init UI elements
         self.mainApplication = AtomApp()
         self.selectionDialog = SelectionDialog(self.mainApplication)
         self.PDFViewer = PDFViewer(self.mainApplication.fileDisplayWidget)
         self.mainApplication.horizontalLayout_3.addWidget(self.PDFViewer)
+        self.mainApplication.nextButton.setEnabled(False)
+        self.mainApplication.previousButton.setEnabled(False)
 
         #init config, signals and slots
         self.mainApplication.pageLabel.clear()
@@ -131,6 +138,8 @@ class Controller:
         self.mainApplication.applySelection.clicked.connect(self.applySelection)
         self.selectionDialog.cancelButton.clicked.connect(self.closeSelectionDialog)
         self.selectionDialog.saveButton.clicked.connect(self.saveSelection)
+        self.mainApplication.nextButton.clicked.connect(self.moveToNextPage)
+        self.mainApplication.previousButton.clicked.connect(self.moveToPreviousPage)
 
         #start application
         self.mainApplication.startApp()
@@ -140,8 +149,9 @@ class Controller:
         filepath, _ = QFileDialog.getOpenFileName(self.mainApplication, "Open PDF File", "", "PDF Files (*.pdf);;All Files (*)", options=options)
         if filepath:
             self.loaded_pdf_path = filepath
-            doc = fitz.open(filepath)
-            page = doc.load_page(0)
+            self.doc = fitz.open(filepath)
+            self.currentpage = 0
+            page = self.doc.load_page(0)
             dpi = 1000
             zoom = dpi / 72  # Default DPI in PyMuPDF is 72
             mat = fitz.Matrix(zoom, zoom)
@@ -151,19 +161,64 @@ class Controller:
             pixmap = QPixmap.fromImage(qt_img)
             self.PDFViewer.setPixmap(pixmap)
             self.mainApplication.makeSelection.setEnabled(True)
-            num_pages = doc.page_count
-            self.mainApplication.pageLabel.setText('Page 1/' + str(num_pages))
-            doc.close()
+            self.num_pages = self.doc.page_count
+            self.mainApplication.pageLabel.setText(f'Page {self.currentpage + 1}/{self.num_pages}')
+            self.doc.close()
+
+
+            self.coordinatesFile = f"Coordinates/{filepath.split('/')[-1].split('.')[0]}.json"
+            if os.path.exists(self.coordinatesFile):
+                with open(self.coordinatesFile, 'r') as f:
+                    self.jsonData = json.load(f)
+            else:
+                self.jsonData = {f'Page {self.currentpage}': {}}
+                with open(self.coordinatesFile, 'w') as f:
+                    json.dump(obj=self.jsonData, fp=f, indent=4)
+
+            self.mainApplication.nextButton.setEnabled(True)
+            self.mainApplication.previousButton.setEnabled(True)
+
+    def moveToNextPage(self):
+        self.currentpage += 1
+        self.doc = fitz.open(self.loaded_pdf_path)
+        page =self.doc.load_page(self.currentpage)
+        dpi = 1000
+        zoom = dpi / 72 
+        mat = fitz.Matrix(zoom, zoom)
+
+        pix = page.get_pixmap(matrix=mat)
+        qt_img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(qt_img)
+        self.PDFViewer.setPixmap(pixmap)
+        self.doc.close()
+
+    def moveToPreviousPage(self):
+        self.currentpage -= 1
+        self.doc = fitz.open(self.loaded_pdf_path)
+        page =self.doc.load_page(self.currentpage)
+        dpi = 1000
+        zoom = dpi / 72 
+        mat = fitz.Matrix(zoom, zoom)
+
+        pix = page.get_pixmap(matrix=mat)
+        qt_img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(qt_img)
+        self.PDFViewer.setPixmap(pixmap)
+        self.doc.close()
 
     def startSelection(self):
         self.mainApplication.applySelection.show()
         self.mainApplication.makeSelection.hide()
         self.PDFViewer.setRubberband()
+        self.mainApplication.nextButton.setEnabled(False)
+        self.mainApplication.previousButton.setEnabled(False)
 
     def applySelection(self):
         self.mainApplication.applySelection.hide()
         self.mainApplication.makeSelection.show()
         self.showSelectionDialog()
+        self.mainApplication.nextButton.setEnabled(True)
+        self.mainApplication.previousButton.setEnabled(True)
     
     def showSelectionDialog(self):
         pos = QPoint(self.mainApplication.pos().x() + self.mainApplication.rect().center().x() - self.selectionDialog.rect().center().x(), 
@@ -176,10 +231,17 @@ class Controller:
         item = QListWidgetItem(selectionType)
         self.mainApplication.selectionsList.addItem(item)
         self.selectionDialog.close()
-        coords = self.PDFViewer.getRectCoords()
-        self.selections[selectionType] = list(coords)
-        with open('coordinates.json', 'w') as fp:
-            json.dump(self.selections, fp)
+        coords = list(self.PDFViewer.getRectCoords())
+
+        try:
+            currentNumberOfSelections = len(self.jsonData[f'Page {self.currentpage}'].keys())
+            self.jsonData[f'Page {self.currentpage}'].update({f'Coordinate {currentNumberOfSelections}': {selectionType: coords}})
+        except KeyError:
+            currentNumberOfSelections = 0
+            self.jsonData[f'Page {self.currentpage}'] = {f'Coordinate {currentNumberOfSelections}': {selectionType: coords}}
+    
+        with open(self.coordinatesFile, 'w') as f:
+            json.dump(obj=self.jsonData, fp=f, indent=4)
 
     def closeSelectionDialog(self):
         self.mainApplication.applySelection.hide()
